@@ -3,8 +3,11 @@ from tkinter import messagebox, font
 from PIL import Image, ImageTk
 import speech_recognition as sr
 import threading
+import json
+import hashlib
+import os
 from phishing_detector import PhishingDetectorUI
-from file_encryptor import FileEncryptorUI # <-- IMPORT THE NEW MODULE
+from file_encryptor import FileEncryptorUI
 
 # --- Constants and Configuration ---
 WINDOW_BG = "#212121"
@@ -17,12 +20,9 @@ SUCCESS_COLOR = "#28a745" # Green for success
 LISTENING_COLOR = "#ffc107" # Yellow for listening
 CLOSE_BUTTON_BG = "#c9302c" # Red for close button
 FONT_FAMILY = "Helvetica"
+CREDENTIALS_FILE = "credentials.json"
 
-# --- Credentials ---
-CORRECT_MAGIC_WORD = "hello"
-CORRECT_PASSWORD = "password123"
-
-
+# --- MainDashboard Class (No changes needed here) ---
 class MainDashboard(tk.Toplevel):
     """
     The main dashboard of the security application.
@@ -110,33 +110,36 @@ class MainDashboard(tk.Toplevel):
         return frame
 
     def open_file_encryptor(self):
-        # This now opens the new FileEncryptorUI window
         encryptor_window = FileEncryptorUI(self)
-        encryptor_window.grab_set() # This makes the new window modal
+        encryptor_window.grab_set()
 
     def open_phishing_detector(self):
-        # This now opens the new PhishingDetectorUI window
         phishing_window = PhishingDetectorUI(self)
-        phishing_window.grab_set() # This makes the new window modal
+        phishing_window.grab_set()
 
     def open_link_analyzer(self):
         messagebox.showinfo("Coming Soon", "The Link Analyzer feature is under construction.")
-        print("Link Analyzer feature coming soon!")
 
     def open_scam_checker(self):
         messagebox.showinfo("Coming Soon", "The Scam Call Check feature is under construction.")
-        print("Scam Call Check feature coming soon!")
 
 
 class SecurityApp(tk.Tk):
     """
     The main application class for the security app.
-    This class now handles a voice-activated login screen.
+    Handles loading credentials and the voice-activated login screen.
     """
     def __init__(self):
         super().__init__()
+        
+        # --- Load Credentials ---
+        self.credentials = self.load_credentials()
+        if not self.credentials:
+            self.destroy()
+            return
+
         self.title("Security App - Voice Login")
-        self.geometry("400x600")
+        self.geometry("400x650") # Increased height for forgot password
         self.configure(bg=WINDOW_BG)
         self.resizable(False, False)
 
@@ -147,6 +150,7 @@ class SecurityApp(tk.Tk):
         self.entry_font = font.Font(family=FONT_FAMILY, size=12)
         self.button_font = font.Font(family=FONT_FAMILY, size=14, weight="bold")
         self.status_font = font.Font(family=FONT_FAMILY, size=10, slant="italic")
+        self.link_font = font.Font(family=FONT_FAMILY, size=10, underline=True)
 
         try:
             logo_image = Image.open("logo.png").resize((100, 100), Image.LANCZOS)
@@ -192,9 +196,30 @@ class SecurityApp(tk.Tk):
             activebackground=BUTTON_BG, activeforeground=BUTTON_FG, borderwidth=0,
             relief="flat", cursor="hand2", command=self.attempt_login
         )
-        login_button.pack(fill="x", pady=(30, 10), ipady=10)
+        login_button.pack(fill="x", pady=(20, 10), ipady=10)
+        
+        # --- NEW: Forgot Password Button ---
+        forgot_password_button = tk.Label(
+            login_frame, text="Forgot Password?", font=self.link_font, bg=WINDOW_BG,
+            fg="#cccccc", cursor="hand2"
+        )
+        forgot_password_button.pack(pady=10)
+        forgot_password_button.bind("<Button-1>", lambda e: self.show_forgot_password_window())
+
 
         self.bind("<Return>", lambda event: self.attempt_login())
+
+    def load_credentials(self):
+        """Loads credentials from the JSON file."""
+        if not os.path.exists(CREDENTIALS_FILE):
+            messagebox.showerror("Error", f"'{CREDENTIALS_FILE}' not found.\nPlease run the setup.py script first.")
+            return None
+        try:
+            with open(CREDENTIALS_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            messagebox.showerror("Error", f"Failed to load or parse credentials: {e}")
+            return None
 
     def start_listening_thread(self):
         self.speak_button.config(state=tk.DISABLED, text="🎤 Listening...")
@@ -223,29 +248,124 @@ class SecurityApp(tk.Tk):
     def attempt_login(self):
         magic_word = self.transcribed_word.get()
         password = self.password_entry.get()
+        
+        if not password or not magic_word:
+            messagebox.showerror("Login Failed", "Magic word and password are required.")
+            return
 
-        # --- IMPORTANT SECURITY FIX ---
-        # Both the magic word and password must be correct.
-        if password == CORRECT_PASSWORD:
+        # Hash the entered password for comparison
+        hashed_password = hashlib.sha256(password.encode()).hexdigest()
+
+        if magic_word == self.credentials['magic_word'] and hashed_password == self.credentials['password']:
             self.open_main_dashboard()
         else:
-            error_message = "Login Failed.\n"
-            if magic_word != CORRECT_MAGIC_WORD:
-                error_message += f" - Magic word was incorrect (heard: '{magic_word}').\n"
-            if password != CORRECT_PASSWORD:
-                error_message += " - Password was incorrect."
-            messagebox.showerror("Login Failed", error_message.strip())
+            messagebox.showerror("Login Failed", "Invalid magic word or password.")
             self.password_entry.delete(0, tk.END)
             self.status_label.config(text="Status: Waiting for you to speak...", fg=TEXT_COLOR)
             self.transcribed_word.set("")
 
+    def show_forgot_password_window(self):
+        """Creates a new window to handle password recovery."""
+        recovery_window = tk.Toplevel(self)
+        recovery_window.title("Password Recovery")
+        recovery_window.geometry("400x350")
+        recovery_window.configure(bg=WINDOW_BG)
+        recovery_window.resizable(False, False)
+        recovery_window.grab_set() # Modal window
+
+        frame = tk.Frame(recovery_window, bg=WINDOW_BG, padx=20, pady=20)
+        frame.pack(fill="both", expand=True)
+        
+        tk.Label(frame, text="Answer Security Questions", font=self.title_font, bg=WINDOW_BG, fg=TEXT_COLOR).pack(pady=(0, 20))
+        
+        # Display questions
+        q1_label = tk.Label(frame, text=self.credentials['security_questions'][0], font=self.label_font, bg=WINDOW_BG, fg=TEXT_COLOR)
+        q1_label.pack(anchor="w", pady=(10, 5))
+        answer1_entry = tk.Entry(frame, font=self.entry_font, bg=ENTRY_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, relief="flat")
+        answer1_entry.pack(fill="x", ipady=8)
+        
+        q2_label = tk.Label(frame, text=self.credentials['security_questions'][1], font=self.label_font, bg=WINDOW_BG, fg=TEXT_COLOR)
+        q2_label.pack(anchor="w", pady=(10, 5))
+        answer2_entry = tk.Entry(frame, font=self.entry_font, bg=ENTRY_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, relief="flat")
+        answer2_entry.pack(fill="x", ipady=8)
+        
+        submit_button = tk.Button(
+            frame, text="Submit Answers", font=self.button_font, bg=BUTTON_BG, fg=BUTTON_FG, relief="flat",
+            command=lambda: self.verify_security_answers(recovery_window, answer1_entry.get(), answer2_entry.get())
+        )
+        submit_button.pack(fill="x", pady=20, ipady=10)
+
+    def verify_security_answers(self, window, answer1, answer2):
+        """Hashes and verifies the provided security answers."""
+        if not answer1 or not answer2:
+            messagebox.showerror("Error", "Both answers are required.", parent=window)
+            return
+            
+        hashed_answer1 = hashlib.sha256(answer1.encode()).hexdigest()
+        hashed_answer2 = hashlib.sha256(answer2.encode()).hexdigest()
+
+        if (hashed_answer1 == self.credentials['security_answers'][0] and
+            hashed_answer2 == self.credentials['security_answers'][1]):
+            window.destroy()
+            self.show_reset_password_window()
+        else:
+            messagebox.showerror("Verification Failed", "One or more answers are incorrect.", parent=window)
+
+    def show_reset_password_window(self):
+        """Shows a window to reset the password."""
+        reset_window = tk.Toplevel(self)
+        reset_window.title("Reset Password")
+        reset_window.geometry("400x300")
+        reset_window.configure(bg=WINDOW_BG)
+        reset_window.grab_set()
+
+        frame = tk.Frame(reset_window, bg=WINDOW_BG, padx=20, pady=20)
+        frame.pack(fill="both", expand=True)
+        
+        tk.Label(frame, text="Create New Password", font=self.title_font, bg=WINDOW_BG, fg=TEXT_COLOR).pack(pady=(0, 20))
+
+        tk.Label(frame, text="New Password", font=self.label_font, bg=WINDOW_BG, fg=TEXT_COLOR).pack(anchor="w", pady=(10, 5))
+        new_pass_entry = tk.Entry(frame, show="*", font=self.entry_font, bg=ENTRY_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, relief="flat")
+        new_pass_entry.pack(fill="x", ipady=8)
+
+        tk.Label(frame, text="Confirm New Password", font=self.label_font, bg=WINDOW_BG, fg=TEXT_COLOR).pack(anchor="w", pady=(10, 5))
+        confirm_pass_entry = tk.Entry(frame, show="*", font=self.entry_font, bg=ENTRY_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR, relief="flat")
+        confirm_pass_entry.pack(fill="x", ipady=8)
+        
+        reset_button = tk.Button(
+            frame, text="Reset Password", font=self.button_font, bg=BUTTON_BG, fg=BUTTON_FG, relief="flat",
+            command=lambda: self.perform_password_reset(reset_window, new_pass_entry.get(), confirm_pass_entry.get())
+        )
+        reset_button.pack(fill="x", pady=20, ipady=10)
+
+    def perform_password_reset(self, window, new_password, confirm_password):
+        """Resets the password and saves it."""
+        if not new_password or not confirm_password:
+            messagebox.showerror("Error", "Both fields are required.", parent=window)
+            return
+        
+        if new_password != confirm_password:
+            messagebox.showerror("Error", "Passwords do not match.", parent=window)
+            return
+        
+        # Hash and save the new password
+        self.credentials['password'] = hashlib.sha256(new_password.encode()).hexdigest()
+        try:
+            with open(CREDENTIALS_FILE, 'w') as f:
+                json.dump(self.credentials, f, indent=4)
+            messagebox.showinfo("Success", "Password has been reset successfully.", parent=window)
+            window.destroy()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not save new password: {e}", parent=window)
+
+
     def open_main_dashboard(self):
         """Hides the login window and opens the main app dashboard."""
-        self.withdraw()  # Hide the login window instead of destroying it
+        self.withdraw()
         dashboard = MainDashboard(self)
-        # Ensure the main app closes when the dashboard is closed
         dashboard.protocol("WM_DELETE_WINDOW", self.destroy)
 
 if __name__ == "__main__":
     app = SecurityApp()
-    app.mainloop()
+    if app.credentials: # Only run mainloop if credentials loaded successfully
+        app.mainloop()
