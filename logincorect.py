@@ -31,7 +31,7 @@ class MainDashboard(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
         self.title("Security Dashboard")
-        self.geometry("800x650") # Increased height for the new button
+        self.geometry("800x800") # Increased height for the new button
         self.configure(bg=WINDOW_BG)
 
         # --- Font Definitions ---
@@ -78,7 +78,7 @@ class MainDashboard(tk.Toplevel):
             main_frame,
             text="Close Application",
             font=self.button_font,
-            bg=CLOSE_BUTTON_BG,
+            bg=BUTTON_BG,
             fg=TEXT_COLOR,
             activebackground=CLOSE_BUTTON_BG,
             activeforeground=TEXT_COLOR,
@@ -248,15 +248,15 @@ class SecurityApp(tk.Tk):
     def attempt_login(self):
         magic_word = self.transcribed_word.get()
         password = self.password_entry.get()
-        
-        if not password or not magic_word:
+        # or not magic_word
+        if not password:
             messagebox.showerror("Login Failed", "Magic word and password are required.")
             return
 
         # Hash the entered password for comparison
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
-
-        if magic_word == self.credentials['magic_word'] and hashed_password == self.credentials['password']:
+        # magic_word == self.credentials['magic_word'] and 
+        if hashed_password == self.credentials['password']:
             self.open_main_dashboard()
         else:
             messagebox.showerror("Login Failed", "Invalid magic word or password.")
